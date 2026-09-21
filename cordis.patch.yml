@@ -1,0 +1,8 @@
+# dsh-file-editor bundle patch
+#
+# Mounts the right-sidebar editor as one plugin row. The plugin's own route
+# namespaces are /file-editor/api and /file-editor/bundle (never /sidebar/*),
+# so it can coexist with dsh-better-sidebar.
+- insert:
+    - id: file-editor
+      name: 'dsh-file-editor'
