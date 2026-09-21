@@ -15,7 +15,7 @@
  *
  * Optional overrides: DSH_BASE (default http://127.0.0.1:3080),
  * DSH_SESSION (default: an unknown id, which exercises the documented
- * client-cwd fallback), TEST_WORKSPACE (default D:/ws/dsh-file-editor).
+ * client-cwd fallback), TEST_WORKSPACE (default: the current directory).
  *
  * Without a cookie the script reports the gate and exits 2 — it does not try to
  * obtain credentials. The host half's logic is covered hermetically by
@@ -26,7 +26,7 @@ import { readFile, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 
 const BASE = new URL(process.env.DSH_BASE ?? 'http://127.0.0.1:3080')
-const WORKSPACE = process.env.TEST_WORKSPACE ?? 'D:/ws/dsh-file-editor'
+const WORKSPACE = process.env.TEST_WORKSPACE ?? process.cwd()
 const SESSION = process.env.DSH_SESSION ?? 'e2e-placeholder-session'
 const COOKIE = process.env.DSH_COOKIE
 const TEMP_FILE = join(WORKSPACE, '.e2e-roundtrip.txt').replace(/\\/g, '/')

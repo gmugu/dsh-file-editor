@@ -36,9 +36,9 @@
 当前 profile 里已经装好（bundle `dsh-file-editor`，row `file-editor`）：
 
 ```powershell
-# 源码在工作区，profile 里是一个指向它的 junction
-#   C:\Users\admin\local\dsh-file-editor  →  D:\ws\dsh-file-editor
-#   profiles\web\node_modules\dsh-file-editor  →  C:\Users\admin\local\dsh-file-editor
+# 源码在工作区，profile 里是一个指向它的 junction（两层，均与 profile 同盘）
+#   <your-home>\local\dsh-file-editor          →  <this checkout>
+#   <profile>\node_modules\dsh-file-editor     →  <your-home>\local\dsh-file-editor
 dsh plugin --profile web list
 ```
 
@@ -49,7 +49,7 @@ npm install            # 工作区开发依赖（esbuild + @codemirror/*）
 npm run build          # 生成 lib/client.js 与 lib/client-editor.js
 ```
 
-然后用 `plugin_manager` 的 `install_bundle` 执行安装。**注意**：`install_bundle` 的 target 会被解析到 `$HOME`，且 pnpm 在本机创建的是**相对 junction**，跨盘符会解析失败（junction 会指向 `…\web\D:\ws\…` 这种不存在的路径）。因此源码路径必须与 profile 同盘，这也是本仓库用 `C:\Users\admin\local\dsh-file-editor` 做中转 junction 的原因。
+然后用 `plugin_manager` 的 `install_bundle` 执行安装。**注意**：`install_bundle` 的 target 会被解析到 `$HOME`，且 pnpm 在这里创建的是**相对 junction**，跨盘符会解析失败（junction 会指向 `…\<profile>\D:\…` 这种不存在的路径）。因此中转目录必须与 profile 同盘——本仓库的做法是在 `$HOME` 下放一个 `<your-home>\local\dsh-file-editor` junction 指向实际工作区。
 
 替换已安装的包后，需要一个 **profile 重启** 才会加载全新的 JS module generation；仅改 chunk（`lib/client-editor.js`）时刷新页面即可（chunk 走 ETag 重新校验）。
 

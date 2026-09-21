@@ -36,9 +36,10 @@ Extracted from [dsh-better-sidebar](https://github.com/omdsh-dev/DSH-better-side
 Already installed in this profile (bundle `dsh-file-editor`, row `file-editor`):
 
 ```powershell
-# The source lives in the workspace; the profile holds a junction to it:
-#   C:\Users\admin\local\dsh-file-editor  →  D:\ws\dsh-file-editor
-#   profiles\web\node_modules\dsh-file-editor  →  C:\Users\admin\local\dsh-file-editor
+# The source lives in the workspace; the profile holds a junction chain to it
+# (both links sit on the profile's own drive):
+#   <your-home>\local\dsh-file-editor        →  <this checkout>
+#   <profile>\node_modules\dsh-file-editor   →  <your-home>\local\dsh-file-editor
 dsh plugin --profile web list
 ```
 
@@ -49,7 +50,7 @@ npm install            # workspace devDependencies (esbuild + @codemirror/*)
 npm run build          # emits lib/client.js and lib/client-editor.js
 ```
 
-then install through `plugin_manager`'s `install_bundle`. **Note:** its target is resolved against `$HOME`, and pnpm creates *relative* junctions here — a cross-drive target resolves to a non-existent path such as `…\web\D:\ws\…`. The source path must therefore share the profile's drive, which is why this repository routes through the `C:\Users\admin\local\dsh-file-editor` junction.
+then install through `plugin_manager`'s `install_bundle`. **Note:** its target is resolved against `$HOME`, and pnpm creates *relative* junctions here — a cross-drive target resolves to a non-existent path such as `…\<profile>\D:\…`. The intermediate directory must therefore share the profile's drive, which is why this repository puts a `<your-home>\local\dsh-file-editor` junction in front of the actual workspace.
 
 Replacing an installed package needs a **profile restart** to load a fresh JS module generation; a chunk-only change (`lib/client-editor.js`) only needs a page refresh (chunks revalidate by ETag).
 
