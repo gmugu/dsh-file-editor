@@ -29,12 +29,16 @@ const CODE_ID = '@deepseek-ai/dsh-client-ui-sidebar-documentpreview/code'
 const MARKDOWN_ID = '@deepseek-ai/dsh-client-ui-sidebar-documentpreview/markdown'
 const PDF_ID = '@deepseek-ai/dsh-client-ui-sidebar-documentpreview/pdf'
 const IMAGE_ID = '@deepseek-ai/dsh-client-ui-sidebar-documentpreview/image'
+const EXCEL_ID = '@deepseek-ai/dsh-client-ui-sidebar-documentpreview/excel'
 
 /**
  * Suffixes the official definitions treat as binary or rich — captured from the
- * shipped bundle: `BINARY_IMAGE_EXTENSIONS` (bitmaps; `svg` is deliberately NOT
- * one of them) plus `UNVIEWABLE_BINARY_EXTENSIONS` (audio/video, archives,
- * Office, executables, fonts, disk images, databases, design files) plus `pdf`.
+ * shipped bundle (@deepseek-ai/dsh 0.1.7-alpha.2): `BINARY_IMAGE_EXTENSIONS`
+ * (bitmaps; `svg` is deliberately NOT one of them) plus
+ * `UNVIEWABLE_BINARY_EXTENSIONS` (audio/video, archives, Office documents,
+ * executables, fonts, disk images, databases, design files) plus `pdf`, plus
+ * the spreadsheet viewer's suffixes (`xlsx` `xls` and the text-readable
+ * `csv` `tsv` — new in 0.1.7-alpha.x; the editor no longer declares those).
  * Declaring any of these for the editor would make it the only candidate for
  * those files and strand the reader in a read-only "binary file" pane, so the
  * guard below forbids it.
@@ -48,6 +52,7 @@ const OFFICIAL_RICH_EXTENSIONS = new Set([
   'exe', 'dll', 'so', 'dylib', 'bin', 'o', 'class', 'pyc', 'wasm',
   'ttf', 'otf', 'woff', 'woff2', 'eot', 'dmg', 'iso', 'img',
   'sqlite', 'db', 'psd', 'ai', 'sketch', 'pdf',
+  'csv', 'tsv',
 ])
 
 /** The official definitions in their registration order, plus ours last. */
@@ -57,6 +62,7 @@ const DEFINITIONS = [
   { id: '@deepseek-ai/dsh-client-ui-sidebar-documentpreview/html', extensions: ['html', 'htm'], priority: 'builtin', loading: 'text-pages' },
   { id: IMAGE_ID, extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'ico', 'svg'], priority: 'builtin', binaryExtensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'ico'] },
   { id: PDF_ID, extensions: ['pdf'], priority: 'builtin', binaryExtensions: ['pdf'] },
+  { id: EXCEL_ID, extensions: ['xlsx', 'xls', 'csv', 'tsv'], priority: 'builtin', binaryExtensions: ['xlsx', 'xls'] },
   { id: CODE_ID, extensions: CODE_EXTENSIONS, priority: 'builtin', loading: 'text-pages' },
   { id: EDITOR_ID, extensions: EDITOR_EXTENSIONS, priority: 'builtin', loading: 'renderer' },
 ]

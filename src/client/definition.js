@@ -80,15 +80,18 @@ export const CODE_EXTENSIONS = [
  * "binary file" dead end.
  *
  * Two deliberate inclusions worth naming:
- *  - `csv` / `tsv` / `psv`: the official preview has NO table viewer, so these
- *    are already rendered as raw plain text today — editable is strictly better;
+ *  - `psv`: the official preview has no pipe-table viewer, so it is already
+ *    rendered as raw plain text today — editable is strictly better;
  *  - `svg`: the official image viewer declares it and explicitly keeps it out of
  *    its binary set ("SVG's XML source is worth reading"), so declaring it only
  *    ADDS an "Editor" menu entry; the image preview stays the default.
  */
 export const EXTRA_EXTENSIONS = [
-  // generic plain text and delimited data
-  'txt', 'text', 'log', 'csv', 'tsv', 'psv',
+  // generic plain text and delimited data. csv/tsv are NOT here anymore: the
+  // official spreadsheet viewer (added in @deepseek-ai/dsh 0.1.7-alpha.x)
+  // declares xlsx/xls/csv/tsv, so those keep the official table preview as
+  // their default and this plugin merely follows them in CODE-set style.
+  'txt', 'text', 'log', 'psv',
 
   // text-based data and interchange formats
   'json5', 'jsonnet', 'ipynb', 'lock', 'sum', 'mod', 'work',
