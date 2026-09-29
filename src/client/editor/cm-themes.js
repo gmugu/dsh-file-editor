@@ -48,6 +48,103 @@ export const cmSurfaceTheme = EditorView.theme({
     // Keeps line numbers on the same baseline grid as the content above.
     lineHeight: 'var(--dsw-font-markdown-code-block-line-height, 19px)',
   },
+  // The search panel (@codemirror/search) matches the plugin toolbar's own
+  // buttons: transparent fill, the l4 border, label-primary text. The alias
+  // SURFACE tokens are deliberately avoided here — dsh-dream-skin re-declares
+  // --dsw-alias-bg-layer-2 as ~96% translucent over the wallpaper (with
+  // !important), which turns any filled control into unreadable text-on-noise.
+  '.cm-panels': {
+    backgroundColor: 'transparent',
+    color: 'var(--dsw-alias-label-primary)',
+    borderBottom: '1px solid var(--dsw-alias-border-l4)',
+    fontFamily: 'var(--ds-font-family-text, inherit)',
+    fontSize: '12px',
+  },
+  '.cm-panel.cm-search': {
+    display: 'block',
+    position: 'relative',
+    padding: '4px 32px 4px 8px',
+    color: 'var(--dsw-alias-label-primary)',
+    lineHeight: '26px',
+  },
+  '.cm-panel.cm-search input[type=checkbox]': {
+    accentColor: 'var(--dsw-alias-brand-primary, #4c6fff)',
+    margin: '0 3px 0 8px',
+    verticalAlign: 'middle',
+  },
+  '.cm-panel.cm-search label': {
+    color: 'var(--dsw-alias-label-secondary)',
+    margin: '0',
+    whiteSpace: 'nowrap',
+    cursor: 'pointer',
+  },
+  '.cm-panel.cm-search input.cm-textfield': {
+    appearance: 'none',
+    WebkitAppearance: 'none',
+    backgroundImage: 'none',
+    backgroundColor: 'transparent',
+    border: '1px solid var(--dsw-alias-border-l4)',
+    borderRadius: '4px',
+    color: 'var(--dsw-alias-label-primary)',
+    padding: '2px 6px',
+    margin: '0 4px 0 0',
+    width: '180px',
+    fontSize: '12px',
+    lineHeight: '18px',
+    verticalAlign: 'middle',
+  },
+  '.cm-panel.cm-search input.cm-textfield::placeholder': {
+    color: 'var(--dsw-alias-label-tertiary)',
+  },
+  '.cm-panel.cm-search button': {
+    appearance: 'none',
+    WebkitAppearance: 'none',
+    // CM's own baseTheme paints .cm-button/.cm-textfield with a LIGHT
+    // gradient background-IMAGE; a background-color override sits under it,
+    // so the image itself must go for the toolbar's ghost-button look.
+    backgroundImage: 'none',
+    backgroundColor: 'transparent',
+    border: '1px solid var(--dsw-alias-border-l4)',
+    borderRadius: '4px',
+    color: 'var(--dsw-alias-label-primary)',
+    cursor: 'pointer',
+    padding: '2px 8px',
+    margin: '0 2px',
+    fontSize: '12px',
+    lineHeight: '18px',
+    verticalAlign: 'middle',
+  },
+  '.cm-panel.cm-search button:hover': {
+    backgroundColor: 'var(--dsw-alias-border-l4)',
+  },
+  // "select all matches" is of little use in this sidebar editor; drop the
+  // button (the panel DOM is built by @codemirror/search, so CSS is the hook).
+  '.cm-panel.cm-search button[name=select]': {
+    display: 'none',
+  },
+  // The × close button floats at the row's end as bare chrome.
+  '.cm-panel.cm-search [name=close]': {
+    position: 'absolute',
+    right: '2px',
+    top: '50%',
+    transform: 'translateY(-50%)',
+    border: 'none',
+    backgroundColor: 'transparent',
+    padding: '2px 6px',
+    fontSize: '14px',
+    color: 'var(--dsw-alias-label-secondary)',
+  },
+  '.cm-panel.cm-search [name=close]:hover': {
+    backgroundColor: 'transparent',
+    color: 'var(--dsw-alias-label-primary)',
+  },
+  '.cm-searchMatch': {
+    backgroundColor: 'rgba(255, 200, 0, 0.35)',
+  },
+  '.cm-searchMatch-selected': {
+    backgroundColor: 'rgba(255, 128, 0, 0.55)',
+    outline: '1px solid rgba(255, 128, 0, 0.8)',
+  },
 })
 
 /** Scheme-specific surface tints (selection, active line). */

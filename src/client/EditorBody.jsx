@@ -124,6 +124,9 @@ export function EditorBody(props) {
   const [chunkAttempt, setChunkAttempt] = useState(0)
   const [displaced, setDisplaced] = useState(false)
   const [dark, setDark] = useState(() => isDarkScheme())
+  /** The live editor's undo/redo handles, set by TextEditor while it is mounted. */
+  const editorControls = useRef(null)
+  const [historyState, setHistoryState] = useState({ canUndo: false, canRedo: false })
 
   const dirty = status === 'ready' && doc !== savedText
   const dirtyRef = useRef(dirty)
@@ -162,6 +165,10 @@ export function EditorBody(props) {
   const loadedVersionRef = useRef(undefined)
   /** Set by a successful save: the next version change is OURS, not a foreign edit. */
   const ownWriteRef = useRef(false)
+  /** Set by a successful save: skip the re-read the owner's revision bump would
+   *  otherwise cause — re-reading would rebuild the editor and drop its undo
+   *  history, and the disk content is exactly the document we just saved. */
+  const skipNextReadRef = useRef(false)
   const reportVersion = useCallback(() => {
     const version = versionRef.current
     const action = versionReportAction({
@@ -201,6 +208,14 @@ export function EditorBody(props) {
     }
     if (!first && dirtyRef.current) {
       setDisplaced(true)
+      return undefined
+    }
+    // Our own save bumped the version (and the owner's revision with it): the
+    // document on screen already IS the disk content, so keep the editor (and
+    // its undo history) instead of re-reading and rebuilding the view.
+    if (!first && skipNextReadRef.current) {
+      skipNextReadRef.current = false
+      readVersionRef.current = versionRef.current
       return undefined
     }
     const controller = new AbortController()
@@ -325,6 +340,7 @@ export function EditorBody(props) {
         if (!mountedRef.current) return
         // The version is about to change because of THIS write.
         ownWriteRef.current = true
+        skipNextReadRef.current = true
         setSavedText(docRef.current)
         setSaveState('saved')
       })
@@ -339,6 +355,7 @@ export function EditorBody(props) {
   const reloadFromDisk = useCallback(() => {
     dropDraft(resourceAddress)
     dirtyRef.current = false
+    skipNextReadRef.current = false
     setDisplaced(false)
     setReloadToken((value) => value + 1)
   }, [resourceAddress])
@@ -355,11 +372,11 @@ export function EditorBody(props) {
   }, [])
 
   const saveLabel = saveState === 'saving'
-    ? label('saving', '正在保存…')
+    ? '正在保存…'
     : saveState === 'saved'
-      ? label('saved', '已保存')
+      ? '已保存'
       : saveState === 'failed'
-        ? label('saveFailed', '保存失败')
+        ? '保存失败'
         : ''
 
   let body
@@ -401,6 +418,8 @@ export function EditorBody(props) {
         dark={dark}
         onChange={setDoc}
         onSave={save}
+        controlsRef={editorControls}
+        onHistoryState={setHistoryState}
         onScrollport={scrollportRef}
       />
     )
@@ -422,10 +441,39 @@ export function EditorBody(props) {
           style={{ ...STYLE.save, opacity: dirty && !truncated ? 1 : 0.5 }}
           disabled={!dirty || truncated}
           onClick={save}
-          title={`${label('save', '保存')} (Ctrl/Cmd+S)`}
+          title="保存 (Ctrl/Cmd+S)"
           data-file-editor-save=""
         >
-          {label('save', '保存')}
+          保存
+        </button>
+        <button
+          type="button"
+          style={{ ...STYLE.save, opacity: historyState.canUndo ? 1 : 0.5 }}
+          disabled={!historyState.canUndo}
+          onClick={() => editorControls.current?.undo()}
+          title="撤销 (Ctrl/Cmd+Z)"
+          data-file-editor-undo=""
+        >
+          撤销
+        </button>
+        <button
+          type="button"
+          style={{ ...STYLE.save, opacity: historyState.canRedo ? 1 : 0.5 }}
+          disabled={!historyState.canRedo}
+          onClick={() => editorControls.current?.redo()}
+          title="重做 (Ctrl/Cmd+Shift+Z)"
+          data-file-editor-redo=""
+        >
+          重做
+        </button>
+        <button
+          type="button"
+          style={STYLE.save}
+          onClick={() => editorControls.current?.openSearch()}
+          title="搜索 (Ctrl/Cmd+F)"
+          data-file-editor-search=""
+        >
+          搜索
         </button>
         {saveLabel !== '' && <span data-file-editor-save-state={saveState}>{saveLabel}</span>}
         <span style={STYLE.spacer} />
