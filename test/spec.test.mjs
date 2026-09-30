@@ -90,29 +90,22 @@ test('a CRLF document round-trips through decode/encode unchanged', () => {
   assert.equal(encodeSource(editorDoc, decoded), source)
 })
 
-test('the suffix table matches the official code viewer exactly', () => {
-  // Captured from @deepseek-ai/dsh-client-ui-sidebar-documentpreview
-  // lib/client.js `CODE_EXTENSIONS`. Equality — not a subset — is the invariant
-  // that keeps the official preview the default AND the editor in the menu.
-  const official = [
-    'ts', 'tsx', 'mts', 'cts',
-    'js', 'jsx', 'mjs', 'cjs',
-    'sh', 'bash', 'zsh',
-    'json', 'jsonc', 'jsonl', 'ndjson',
-    'py', 'pyw', 'pyi',
-    'rb', 'rake', 'gemspec',
-    'go', 'rs', 'java',
-    'c', 'h', 'cc', 'cpp', 'cxx', 'hh', 'hpp', 'hxx',
-    'cs', 'kt', 'kts', 'swift', 'php',
-    'yaml', 'yml', 'toml', 'ini',
-    'md', 'markdown', 'mdx',
-    'html', 'htm', 'xhtml',
-    'css', 'scss', 'less', 'sql',
-    'xml', 'xsd', 'xsl', 'xslt',
-    'lua',
-  ]
-  assert.deepEqual(CODE_EXTENSIONS, official)
+test('the suffix table is structurally sound', () => {
+  // Since @deepseek-ai/dsh 0.2.0 the official code viewer registers
+  // `CODE_HIGHLIGHT_EXTENSIONS` from @deepseek-ai/dsh-util-code-language, and
+  // the authoritative equality check against the INSTALLED table is the live
+  // drift guard in test/ranking.test.mjs ("CODE_EXTENSIONS stays in lockstep
+  // with the installed official table"). Here we pin only the structural
+  // invariants that hold regardless of the exact official contents.
   assert.equal(new Set(CODE_EXTENSIONS).size, CODE_EXTENSIONS.length, 'no duplicate suffixes')
+  for (const extension of CODE_EXTENSIONS) {
+    assert.match(extension, /^[a-z0-9]+$/, `"${extension}" must be a bare lowercase suffix`)
+  }
+  // Long-standing anchors of the official table — if these move, the copy was
+  // edited by hand rather than resynchronized.
+  for (const anchor of ['ts', 'js', 'py', 'md', 'fish', 'vue', 'nix', 'makefile']) {
+    assert.ok(CODE_EXTENSIONS.includes(anchor), `"${anchor}" missing from the official copy`)
+  }
   assert.equal(EDITOR_ID, 'dsh-file-editor:editor')
 })
 

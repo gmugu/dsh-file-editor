@@ -1,6 +1,6 @@
 # dsh-file-editor
 
-**在 DSH Web 右侧栏的官方文件预览里增加一个「编辑器」选项** —— 打开文件的行为基本不变：默认仍是官方只读预览，只有你从查看器下拉里主动选「编辑器」，同一标签才切换成 CodeMirror 6 编辑器，可改、可存。**唯一例外是一份明确的短名单后缀**（`.txt` / `.log` / `.env` / `.gitignore` 等，官方没有任何查看器声明它们），它们默认打开为编辑器，官方纯文本预览退为下拉第二项 —— 原因与边界见下方第 3 条。
+**在 DSH Web 右侧栏的官方文件预览里增加一个「编辑器」选项** —— 打开文件的行为基本不变：默认仍是官方只读预览，只有你从查看器下拉里主动选「编辑器」，同一标签才切换成 CodeMirror 6 编辑器，可改、可存。**唯一例外是一份明确的短名单后缀**（`.txt` / `.psv` / `.gitignore` 等，官方没有任何查看器声明它们），它们默认打开为编辑器，官方纯文本预览退为下拉第二项 —— 原因与边界见下方第 3 条。
 
 功能提取自 [dsh-better-sidebar](https://github.com/omdsh-dev/DSH-better-sidebar)（MIT）的 `fs.read` / `fs.write` 与 `TextEditor`，重写为一个独立、可与之共存的插件（`dsh-sidebar-git` 的同类做法）。
 
@@ -14,7 +14,8 @@
   | `src/a.ts` | 代码 → **编辑器** → 纯文本 | 代码（官方只读预览） |
   | `docs/a.md` | Markdown → 代码 → **编辑器** → 纯文本 | Markdown（官方渲染预览） |
   | `a.png` / `a.pdf` | 图片 / PDF | 官方预览（编辑器不出现在候选里） |
-  | `notes.txt`、`.env`、`.gitignore`（短名单） | **编辑器** → 纯文本 | 编辑器（见约束 3 的例外） |
+  | `notes.txt`、`.gitignore`（短名单） | **编辑器** → 纯文本 | 编辑器（见约束 3 的例外） |
+  | `.env`、`a.log`、`b.tf`、`c.ps1`、`App.vue` | 代码 → **编辑器** → 纯文本 | 代码预览（dsh 0.2.0 已收编进官方表） |
   | `Dockerfile`、`Makefile`、`LICENSE` | 纯文本 | 纯文本（**结构性**不可匹配，见约束 3） |
 
 - 编辑器能力：按扩展名语法高亮（约 60 种语言，含 `@codemirror/legacy-modes` 家族）、行号、撤销历史、`Ctrl/Cmd+S` 保存、脏标记、保存状态、文件大小；首次选中编辑器时才懒加载约 1.8 MB 的 CodeMirror chunk。
@@ -24,11 +25,12 @@
 
 ### 四条刻意的设计约束
 
-1. **绝不取代官方预览。** 实现以 `priority: 'builtin'` 注册，官方已认识的 56 个后缀**原样照抄**，同时 `dsh.client.inject` 声明依赖官方包以确保官方先注册 —— 因此「档位相同 + 后缀长度相同 + 注册更晚」使官方实现永远是 `candidates[0]`（默认项）。
+1. **绝不取代官方预览。** 实现以 `priority: 'builtin'` 注册，官方代码查看器认识的后缀**原样照抄**（dsh 0.2.0 起即 `@deepseek-ai/dsh-util-code-language` 导出的约 116 项 `CODE_HIGHLIGHT_EXTENSIONS`），同时 `dsh.client.inject` 声明依赖官方包以确保官方先注册 —— 因此「档位相同 + 后缀长度相同 + 注册更晚」使官方实现永远是 `candidates[0]`（默认项）。
 2. **「编辑器放最后」的可达含义是「最后一个查看器实现」。** 官方 owner 会把纯文本回退强制追加到候选列表末尾（`PLAIN_BODY_ID` 的 `extensions` 为空，永远匹配不上），任何外部实现都排不到它后面。唯一的办法是把后缀声明成 `binaryExtensions`（会让官方「纯文本」选项对用户消失），本项目**不采用**。
-3. **短名单后缀是「默认官方预览」的明确例外，而且是数学上的例外。** 官方匹配要求 `文件名.endsWith('.' + 后缀)`，纯文本回退声明 `extensions: []` 因此永远进不了候选排序、只能被追加到末尾；下拉又只在候选 ≥ 2 时渲染。所以对「官方没有任何查看器声明」的后缀，**要么我们成为 `candidates[0]`（默认可编辑）**，要么**没有下拉、没有编辑器入口** —— 二者必居其一，不存在第三种。本插件选择前者，范围落在 156 项、按类别分组的可审计清单（`src/client/definition.js` 的 `EXTRA_EXTENSIONS`）：通用文本与分隔数据（`txt` `text` `log` `psv`）、文本化数据格式（`json5` `ipynb` `lock` `geojson` `gpx` …）、配置与点文件（`conf` `env` `plist` `gitignore` `editorconfig` `bashrc` `clang-format` …）、构建文件（`cmake` `mk` `gradle` `dockerfile` `proto`）、脚本（`bat` `cmd` `fish` `ps1` …）、标记与文档（`rst` `adoc` `org` `tex` `diff` `patch` …）、模板（`hbs` `ejs` `jinja` …）、官方代码查看器未收录的源码（`vue` `svelte` `r` `hs` `clj` `dart` `scala` `zig` `sol` `graphql` …）、文本证书（`pem` `crt` `csr`）、字幕/歌单/日程（`srt` `vtt` `m3u` `ics` `vcf`）。这些文件打开即可编辑，官方纯文本预览在下拉第二项（一键可切，且每个标签的选择会被记住）。
-   两条护栏由测试强制：① 与官方 56 个后缀**互斥**（撞上只会多一个入口、默认项不变）；② **不得**撞上官方声明为二进制/富媒体的后缀（图片、音视频、压缩包、Office、可执行文件、字体、磁盘镜像、数据库、设计文件）—— 否则那些文件会以只读「二进制文件」死路收场，`test/ranking.test.mjs` 的 `OFFICIAL_RICH_EXTENSIONS` 就是这道闸。
-   两个刻意点名的取舍：`csv`/`tsv` 已为 @deepseek-ai/dsh 0.1.7-alpha.x 移除 —— 新版官方预览内置了表格查看器，声明 `xlsx` `xls` `csv` `tsv`，这些后缀的默认保持官方表格预览，按设计编辑器不进入它们的候选；`psv` 仍保留（官方没有任何查看器声明它）；`svg` 被官方图片查看器明确排除在二进制集之外（源码注释：SVG 的 XML 源码值得阅读），收录它只**多一个「编辑器」入口，默认仍是图片预览**（独立测试钉住）。
+3. **短名单后缀是「默认官方预览」的明确例外，而且是数学上的例外。** 官方匹配要求 `文件名.endsWith('.' + 后缀)`，纯文本回退声明 `extensions: []` 因此永远进不了候选排序、只能被追加到末尾；下拉又只在候选 ≥ 2 时渲染。所以对「官方没有任何查看器声明」的后缀，**要么我们成为 `candidates[0]`（默认可编辑）**，要么**没有下拉、没有编辑器入口** —— 二者必居其一，不存在第三种。本插件选择前者，范围落在按类别分组的可审计清单（`src/client/definition.js` 的 `EXTRA_EXTENSIONS`）：通用文本与分隔数据（`txt` `text` `psv`）、文本化数据格式（`jsonnet` `lock` `geojson` `gpx` …）、配置与点文件（`cnf` `config` `rc` `desktop` `reg` `service` `gitignore` `editorconfig` `bashrc` `clang-format` …）、构建文件（`mak` `dockerfile`）、标记与文档（`asciidoc` `org` `textile` `ltx`）、模板（`hbs` `ejs` `jinja` …）、官方代码查看器未收录的源码（`astro` `sass` `styl` `rmd` `tcl` `cljc` `pas` `vhd` `vhdl` `prisma` `sol` `zig` `nim` `f90` `asm` …）、文本证书（`pem` `crt` `csr`）、字幕/歌单/日程（`srt` `vtt` `m3u` `ics` `vcf`）。这些文件打开即可编辑，官方纯文本预览在下拉第二项（一键可切，且每个标签的选择会被记住）。
+   dsh 0.2.0 起，官方代码查看器的后缀表改为 `CODE_HIGHLIGHT_EXTENSIONS`（`@deepseek-ai/dsh-util-code-language`，约 116 项，含 `log` `env` `tf` `ps1` `vue` `graphql` `svg` `nix` `makefile` …），`CODE_EXTENSIONS` 的同步由一条**对着本机已装表**的 drift 守卫测试把关（`test/ranking.test.mjs`）；官方表新收编的后缀必须同一次改动里退出短名单。历史注记：仅 0.2.0 一次就收编了约 50 个旧短名单后缀（`log` `env` `conf` `tf` `ps1` `vue` `r` `dart` `graphql` …），它们自此遵循 CODE 契约（官方只读默认，编辑器一键可切）。
+   两条护栏由测试强制：① 与官方后缀**互斥**（撞上只会多一个入口、默认项不变）；② **不得**撞上官方声明为二进制/富媒体的后缀（图片、音视频、压缩包、Office、可执行文件、字体、磁盘镜像、数据库、设计文件、相机格式 `tiff`/`heic`/`avif`）—— 否则那些文件会以只读「二进制文件」死路收场，`test/ranking.test.mjs` 的 `OFFICIAL_RICH_EXTENSIONS` 就是这道闸。
+   两个刻意点名的取舍：`csv`/`tsv` 继续不收录 —— 官方表格查看器声明 `xlsx` `xls` `csv` `tsv`，这些后缀保持官方表格预览参与候选，编辑器按 CODE 集方式跟随；`psv` 仍保留（官方没有任何查看器声明它）；`svg` 现被官方图片查看器（明确排除在二进制集外，源码注释：SVG 的 XML 源码值得阅读）**和**官方代码查看器（xml 族）同时声明，收录它只**多一个「编辑器」入口，默认仍是图片预览**（独立测试钉住）。
 4. **无点文件名在任何方案下都不可匹配。** `Dockerfile` / `Makefile` / `LICENSE` / `README` 没有点，而官方匹配器要求字面点，所以无论注册什么后缀都匹配不到它们；它们的候选永远只有纯文本，因此永远没有下拉。要覆盖这类文件只能换一层（另注册自己的 tab 类型，用 `patterns: ['dsh-resource://file/**']` + `canOpen` 谓词接管地址），本项目当前**不做**。
 
 ## 安装
@@ -91,17 +93,17 @@ build/build.mjs          # esbuild：核心包与 chunk 各包一层本机实测
 ## 验证
 
 ```powershell
-npm test                 # 41 项：地址解析、EOL/BOM、语言映射、后缀不变量与护栏、排名不变量、version 回报策略、宿主处理器
+npm test                 # 44 项：地址解析、EOL/BOM、语言映射、后缀不变量与护栏、排名不变量、官方表 drift 守卫、version 回报策略、宿主处理器
 node scripts/e2e-http.mjs  # 可选：对运行中的 DSH 走真实 HTTP（需 DSH_COOKIE，见下）
 ```
 
 - `test/host.test.mjs` 直接驱动**真实的** `createApiHandler` / `createBundleRouteHandler`：读写往返、二进制嗅探、截断、原子性、越界 403、遍历 403、405/404/400、trust fence、chunk 200/304/403/404。
-- `test/ranking.test.mjs` 复刻官方排序公式（含 `endsWith('.' + 后缀)` 的字面点语义），把两条不变量都钉住：官方 56 个后缀下「编辑器永远不是默认项」且「排在纯文本之前」；短名单后缀下「编辑器第一、官方纯文本第二」；`svg` 单独钉住「图片预览仍是默认、只多一个编辑器入口」；两条护栏 —— 与官方后缀互斥、且不撞官方二进制/富媒体集（`OFFICIAL_RICH_EXTENSIONS`）；`Dockerfile`/`Makefile`/`LICENSE`/`README` 无候选；`.eslintrc.json`/`prod.env.json` 这类复合名仍归官方默认。
+- `test/ranking.test.mjs` 复刻官方排序公式（含 `endsWith('.' + 后缀)` 的字面点语义），把两条不变量都钉住：官方后缀下「编辑器永远不是默认项」且「排在纯文本之前」；短名单后缀下「编辑器第一、官方纯文本第二」；`svg` 单独钉住「图片预览仍是默认、图片/代码/编辑器依次排列」；两条护栏 —— 与官方后缀互斥、且不撞官方二进制/富媒体集（`OFFICIAL_RICH_EXTENSIONS`）；`Dockerfile`/`Makefile`/`LICENSE`/`README` 无候选；`.eslintrc.json`/`prod.env.json` 这类复合名仍归官方默认。另有一条 **drift 守卫**：从本机已装的 `@deepseek-ai/dsh-util-code-language` 读出活表，与 `CODE_EXTENSIONS` 逐项比对（找不到安装时跳过，可用 `DSH_CODE_LANGUAGE_PATH` 指定）。
 - `scripts/e2e-http.mjs` 需要认证：本部署的 `dsh-login-gate` 会包装**所有**已注册路由（未登录 GET→302 / POST→401），所以它必须在 `DSH_COOKIE` 下运行，或部署未启用登录门时使用。
 
 ## 已知限制
 
-- 默认项：官方 56 个后缀下永远是官方预览；短名单后缀（约束 3）下是编辑器（唯一例外是 `svg`：仍是图片预览默认，只是下拉里多了「编辑器」）；无点文件名没有编辑器入口（约束 4）。
+- 默认项：官方后缀（dsh 0.2.0 起约 116 项）下永远是官方预览；短名单后缀（约束 3）下是编辑器；无点文件名没有编辑器入口（约束 4）。
 - 会话中途切换明暗主题时，框架配色即时生效，但 CodeMirror 的**语法色**要重新选中编辑器才更新（挂载时读一次配色）。
 - 打开后文件被外部删除再保存，会按上游语义重建该文件。
 - 无磁盘冲突（mtime）硬校验：编辑器与磁盘各写各的；官方「刷新」或资源版本变化时，若草稿为脏则提示「保留我的修改 / 放弃并重新加载」，绝不静默丢弃。

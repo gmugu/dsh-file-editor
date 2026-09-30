@@ -21,7 +21,12 @@
  * mirror, not the shipped code: the runtime check is the menu the user sees.
  */
 import assert from 'node:assert/strict'
+import { execSync } from 'node:child_process'
+import { existsSync } from 'node:fs'
+import { createRequire } from 'node:module'
+import { join } from 'node:path'
 import { test } from 'node:test'
+import { fileURLToPath } from 'node:url'
 import { CODE_EXTENSIONS, EDITOR_EXTENSIONS, EDITOR_ID, EXTRA_EXTENSIONS } from '../src/client/definition.js'
 
 const PLAIN_ID = '@deepseek-ai/dsh-client-ui-sidebar-documentpreview/text'
@@ -33,12 +38,13 @@ const EXCEL_ID = '@deepseek-ai/dsh-client-ui-sidebar-documentpreview/excel'
 
 /**
  * Suffixes the official definitions treat as binary or rich — captured from the
- * shipped bundle (@deepseek-ai/dsh 0.1.7-alpha.2): `BINARY_IMAGE_EXTENSIONS`
+ * shipped bundle (@deepseek-ai/dsh 0.2.0-rc.2): `BINARY_IMAGE_EXTENSIONS`
  * (bitmaps; `svg` is deliberately NOT one of them) plus
  * `UNVIEWABLE_BINARY_EXTENSIONS` (audio/video, archives, Office documents,
- * executables, fonts, disk images, databases, design files) plus `pdf`, plus
- * the spreadsheet viewer's suffixes (`xlsx` `xls` and the text-readable
- * `csv` `tsv` — new in 0.1.7-alpha.x; the editor no longer declares those).
+ * executables, fonts, disk images, databases, design files, camera formats
+ * `tiff` `tif` `heic` `heif` `avif` — new in 0.2.0) plus `pdf`, plus the
+ * spreadsheet viewer's suffixes (`xlsx` `xls` and the text-readable
+ * `csv` `tsv`; the editor does not declare those).
  * Declaring any of these for the editor would make it the only candidate for
  * those files and strand the reader in a read-only "binary file" pane, so the
  * guard below forbids it.
@@ -52,18 +58,25 @@ const OFFICIAL_RICH_EXTENSIONS = new Set([
   'exe', 'dll', 'so', 'dylib', 'bin', 'o', 'class', 'pyc', 'wasm',
   'ttf', 'otf', 'woff', 'woff2', 'eot', 'dmg', 'iso', 'img',
   'sqlite', 'db', 'psd', 'ai', 'sketch', 'pdf',
+  'tiff', 'tif', 'heic', 'heif', 'avif',
   'csv', 'tsv',
 ])
 
-/** The official definitions in their registration order, plus ours last. */
+/**
+ * The official definitions in their registration order (0.2.0-rc.2:
+ * plain → markdown → html → image → pdf → code → office → excel), plus ours
+ * last. `svg` is claimed by BOTH image and code at the same `builtin` band and
+ * the same suffix length, so registration order puts image first.
+ */
 const DEFINITIONS = [
   { id: PLAIN_ID, extensions: [], priority: 'builtin', loading: 'text-pages' },
   { id: MARKDOWN_ID, extensions: ['md', 'markdown'], priority: 'builtin', loading: 'text-pages' },
   { id: '@deepseek-ai/dsh-client-ui-sidebar-documentpreview/html', extensions: ['html', 'htm'], priority: 'builtin', loading: 'text-pages' },
   { id: IMAGE_ID, extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'ico', 'svg'], priority: 'builtin', binaryExtensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'ico'] },
   { id: PDF_ID, extensions: ['pdf'], priority: 'builtin', binaryExtensions: ['pdf'] },
-  { id: EXCEL_ID, extensions: ['xlsx', 'xls', 'csv', 'tsv'], priority: 'builtin', binaryExtensions: ['xlsx', 'xls'] },
   { id: CODE_ID, extensions: CODE_EXTENSIONS, priority: 'builtin', loading: 'text-pages' },
+  { id: '@deepseek-ai/dsh-client-ui-sidebar-documentpreview/office', extensions: ['doc', 'docx', 'ppt', 'pptx'], priority: 'builtin', binaryExtensions: ['doc', 'docx', 'ppt', 'pptx'] },
+  { id: EXCEL_ID, extensions: ['xlsx', 'xls', 'csv', 'tsv'], priority: 'builtin', binaryExtensions: ['xlsx', 'xls'] },
   { id: EDITOR_ID, extensions: EDITOR_EXTENSIONS, priority: 'builtin', loading: 'renderer' },
 ]
 
@@ -142,23 +155,21 @@ test('a dot-less filename has no viewer menu under any registration strategy', (
 
 test('an extra suffix is the documented exception: editor first, official plain text second', () => {
   for (const extension of EXTRA_EXTENSIONS) {
-    // `svg` is the one deliberate exception AMONG the extras: an official viewer
-    // already claims it (and keeps it out of its binary set), so declaring it
-    // adds a menu entry without changing any default — pinned separately below.
-    if (extension === 'svg') continue
     assert.deepEqual(viewerMenu(`src/sample.${extension}`).map(entry => entry.id), [EDITOR_ID, PLAIN_ID], `.${extension}`)
   }
   // The dotfile shapes the extras really exist for.
-  assert.deepEqual(viewerMenu('.env').map(entry => entry.id), [EDITOR_ID, PLAIN_ID])
+  assert.deepEqual(viewerMenu('.env').map(entry => entry.id), [CODE_ID, EDITOR_ID, PLAIN_ID])
   assert.deepEqual(viewerMenu('.gitignore').map(entry => entry.id), [EDITOR_ID, PLAIN_ID])
 })
 
 test('svg keeps the official image preview as its default and gains the editor', () => {
   // The official image definition declares svg but leaves it OUT of its binary
-  // set on purpose ("SVG's XML source is worth reading"), so this extra is pure
-  // gain: the image preview stays candidates[0] and the menu gains an editor.
+  // set on purpose ("SVG's XML source is worth reading"), and since 0.2.0 the
+  // official CODE viewer claims svg as well (xml family). Both official viewers
+  // precede us at the same `builtin` band and suffix length, so this is pure
+  // gain: the image preview stays candidates[0] and the menu gains code + editor.
   const menu = viewerMenu('assets/icon.svg').map(entry => entry.id)
-  assert.deepEqual(menu, [IMAGE_ID, EDITOR_ID, PLAIN_ID])
+  assert.deepEqual(menu, [IMAGE_ID, CODE_ID, EDITOR_ID, PLAIN_ID])
   assert.equal(menu[0], IMAGE_ID, 'the image preview stays the default')
 })
 
@@ -175,6 +186,46 @@ test('no extra suffix collides with an official suffix set', () => {
   // because both are `builtin` and the official one registered first.
   assert.deepEqual(viewerMenu('.eslintrc.json').map(entry => entry.id), [CODE_ID, EDITOR_ID, PLAIN_ID])
   assert.deepEqual(viewerMenu('config/prod.env.json').map(entry => entry.id), [CODE_ID, EDITOR_ID, PLAIN_ID])
+})
+
+/**
+ * Resolve the live official suffix table from the installed dsh, so the copy
+ * above can be pinned against it. Looked up in: the DSH_CODE_LANGUAGE_PATH env
+ * override, this workspace's node_modules, and the global dsh installation
+ * (flat and nested under @deepseek-ai/dsh). Absent everywhere, the drift test
+ * skips rather than guess.
+ */
+function resolveOfficialCodeExtensions() {
+  const pkg = '@deepseek-ai/dsh-util-code-language'
+  const roots = []
+  if (process.env.DSH_CODE_LANGUAGE_PATH) roots.push(process.env.DSH_CODE_LANGUAGE_PATH)
+  roots.push(join(fileURLToPath(new URL('../node_modules', import.meta.url)), pkg))
+  try {
+    const globalRoot = execSync('npm root -g', { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim()
+    roots.push(join(globalRoot, pkg), join(globalRoot, '@deepseek-ai', 'dsh', 'node_modules', pkg))
+  } catch { /* npm unavailable — fall through to the other roots */ }
+  for (const root of roots) {
+    if (!existsSync(join(root, 'package.json'))) continue
+    try {
+      const require = createRequire(join(root, 'package.json'))
+      const exported = require(root).CODE_HIGHLIGHT_EXTENSIONS
+      if (Array.isArray(exported) && exported.every(item => typeof item === 'string')) return exported
+    } catch { /* unreadable — try the next root */ }
+  }
+  return undefined
+}
+
+test('CODE_EXTENSIONS stays in lockstep with the installed official table (drift guard)', () => {
+  const live = resolveOfficialCodeExtensions()
+  if (live === undefined) {
+    assert.ok(true, 'official table not locatable (set DSH_CODE_LANGUAGE_PATH) — copy drift unchecked in this run')
+    return
+  }
+  assert.deepEqual(
+    CODE_EXTENSIONS,
+    [...live],
+    'the official CODE_HIGHLIGHT_EXTENSIONS changed — resynchronize src/client/definition.js (move absorbed suffixes out of EXTRA_EXTENSIONS too), then rebuild',
+  )
 })
 
 test('for every declared suffix the editor is present, never first, and before the plain fallback', () => {
