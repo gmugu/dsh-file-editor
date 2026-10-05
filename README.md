@@ -35,24 +35,16 @@ Extracted from [dsh-better-sidebar](https://github.com/omdsh-dev/DSH-better-side
 
 ## Installation
 
-Already installed in this profile (bundle `dsh-file-editor`, row `file-editor`):
-
 ```powershell
-# The source lives in the workspace; the profile holds a junction chain to it
-# (both links sit on the profile's own drive):
-#   <your-home>\local\dsh-file-editor        →  <this checkout>
-#   <profile>\node_modules\dsh-file-editor   →  <your-home>\local\dsh-file-editor
-dsh plugin --profile web list
-```
-
-Reinstalling (e.g. from another directory):
-
-```powershell
+git clone https://github.com/gmugu/dsh-file-editor.git
+cd dsh-file-editor
 npm install            # workspace devDependencies (esbuild + @codemirror/*)
 npm run build          # emits lib/client.js and lib/client-editor.js
 ```
 
-then install through `plugin_manager`'s `install_bundle`. **Note:** its target is resolved against `$HOME`, and pnpm creates *relative* junctions here — a cross-drive target resolves to a non-existent path such as `…\<profile>\D:\…`. The intermediate directory must therefore share the profile's drive, which is why this repository puts a `<your-home>\local\dsh-file-editor` junction in front of the actual workspace.
+Then install the checked-out directory as a bundle — through the Plugins page's install-from-directory control, or the harness `plugin_manager` tool's `install_bundle`, with the absolute package directory as the target. The bundle is `dsh-file-editor`, its row is `file-editor`; verify with `dsh plugin --profile <profile> list`.
+
+**Windows note:** `install_bundle`'s target is resolved against `$HOME`, and pnpm creates *relative* junctions here — a cross-drive target resolves to a non-existent path such as `…\<profile>\D:\…`. Put a `<your-home>\local\dsh-file-editor` junction on the profile's drive pointing at the actual checkout, and install that path instead.
 
 Replacing an installed package needs a **profile restart** to load a fresh JS module generation; a chunk-only change (`lib/client-editor.js`) only needs a page refresh (chunks revalidate by ETag).
 

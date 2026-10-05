@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "File Editor",
+    "description": "Editable viewer for the right sidebar: adds an \"Editor\" option to the official document preview's viewer menu (CodeMirror 6, save on Ctrl/Cmd+S), leaving the official read-only preview as the default."
+  }
+}
