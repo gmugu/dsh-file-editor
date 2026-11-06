@@ -19,6 +19,7 @@
   | `Dockerfile`、`Makefile`、`LICENSE` | 纯文本 | 纯文本（**结构性**不可匹配，见约束 3） |
 
 - 编辑器能力：按扩展名语法高亮（约 60 种语言，含 `@codemirror/legacy-modes` 家族）、行号、撤销历史、`Ctrl/Cmd+S` 保存、脏标记、保存状态、文件大小；首次选中编辑器时才懒加载约 1.8 MB 的 CodeMirror chunk。
+- **行号链接会落到对应行**：聊天里的文件行号链接、或预览的定位操作以 `notes.txt:42` 打开时，编辑器滚到第 42 行并短暂高亮该行。目标行取自标签页的导航参数（dsh 0.2.2 的 `params.line`），与导航 revision 一起折成 token，所以**同一条链接点第二次仍会再定位**；高亮期间一开始输入就会撤掉色带。
 - 保存会**保留文件原有的换行风格与 BOM**（CRLF 文件不会被改写成 LF）。
 - **打开文件不会误报「文件已更新」**：正文只回传**已知**的 version（元数据迟到时补报一次），并且**吸收自己保存造成的版本变化**；因此官方的「重新载入」横幅只在**真正的外部改动**时出现（策略是纯函数 `src/client/version-report.js`，有独立单测）。
 - 超过 2 MiB 的文件只读显示并禁用保存；二进制文件提示切回官方预览。
@@ -43,6 +44,8 @@ npm run build          # 生成 lib/client.js 与 lib/client-editor.js
 ```
 
 然后把检出的目录作为 bundle 安装：在 Plugins 页面用「从目录安装」填入包目录的绝对路径，或通过 harness 的 `plugin_manager` 工具执行 `install_bundle`。bundle 名为 `dsh-file-editor`，row 名为 `file-editor`；装完可用 `dsh plugin --profile <profile> list` 核对。
+
+要求 **dsh `>=0.2.2-rc.1 <0.3.0`**、**Node `>=24.9`**（声明在 `engines.dsh` / `engines.node`）：0.2.2 移除了 `ctx.webRuntime`、抬高了 Node 下限，并给文件标签页加上了 `params.line` 导航，本插件就是按这套契约写的；profile 启动时会校验 `engines.dsh`，超出范围会拒绝启动该插件。
 
 **Windows 注意**：`install_bundle` 的 target 会被解析到 `$HOME`，且 pnpm 在这里创建的是**相对 junction**，跨盘符会解析失败（junction 会指向 `…\<profile>\D:\…` 这种不存在的路径）。请在与 profile 同盘的位置放一个 `<your-home>\local\dsh-file-editor` junction 指向实际检出目录，再安装这个路径。
 
@@ -78,20 +81,23 @@ build/build.mjs          # esbuild：核心包与 chunk 各包一层本机实测
 
 - 工作目录取自**会话 header**（`cwd` 只在会话尚未 hydrate 时作兜底），相对路径由宿主相对该目录解析，客户端无需知道 cwd；
 - 所有路径经 `realpath` 围栏到会话工作区（越界 403），围栏**恒开**；
+- 两条路由（`/file-editor/api`、`/file-editor/bundle`）的浏览器信任围栏直接委托 Connection 的判定（`ctx.connection.requestRejection`，与 `/api` 传输同一检查）：回环、绑定地址、profile `connection` 行配置的 `trustedHosts`，以及 `/api` 要求的浏览器凭据，凡 `/api` 放行的来源这里同样放行。被拒时**保留 Connection 的状态码**而不是一律折成 403：凭据缺失/过期是 **401 `unauthorized`**，Host/Origin 不可信是 **403 `forbidden`**；
 - 读取上限 2 MiB、请求体上限 8 MiB（上游 1 MiB 会让大于 1 MiB 的文件存不回去）；
 - 写入为原子写（唯一名临时文件 + rename，失败清理，不留残档），空文件亦可写。
 
-与上游的差异（同上，另加未移植项）：**未**移植 `fs.tree` / `fs.search` / `fs.rename` / `fs.remove` / 上传路由（v1 不做文件树，浏览交给官方 Files 标签）；错误码集合收敛为本插件会产生的 7 个。
+与上游的差异（同上，另加未移植项）：**未**移植 `fs.tree` / `fs.search` / `fs.rename` / `fs.remove` / 上传路由（v1 不做文件树，浏览交给官方 Files 标签）；错误码集合收敛为本插件会产生的 8 个（含 0.2.2 起区分出的 `unauthorized`）。
 
 ## 验证
 
 ```powershell
-npm test                 # 44 项：地址解析、EOL/BOM、语言映射、后缀不变量与护栏、排名不变量、官方表 drift 守卫、version 回报策略、宿主处理器
+npm test                 # 53 项：地址解析、EOL/BOM、语言映射、行定位、后缀不变量与护栏、排名不变量、官方表 drift 守卫、version 回报策略、宿主处理器
 node scripts/e2e-http.mjs  # 可选：对运行中的 DSH 走真实 HTTP（需 DSH_COOKIE，见下）
 ```
 
-- `test/host.test.mjs` 直接驱动**真实的** `createApiHandler` / `createBundleRouteHandler`：读写往返、二进制嗅探、截断、原子性、越界 403、遍历 403、405/404/400、trust fence、chunk 200/304/403/404。
-- `test/ranking.test.mjs` 复刻官方排序公式（含 `endsWith('.' + 后缀)` 的字面点语义），把两条不变量都钉住：官方后缀下「编辑器永远不是默认项」且「排在纯文本之前」；短名单后缀下「编辑器第一、官方纯文本第二」；`svg` 单独钉住「图片预览仍是默认、图片/代码/编辑器依次排列」；两条护栏 —— 与官方后缀互斥、且不撞官方二进制/富媒体集（`OFFICIAL_RICH_EXTENSIONS`）；`Dockerfile`/`Makefile`/`LICENSE`/`README` 无候选；`.eslintrc.json`/`prod.env.json` 这类复合名仍归官方默认。另有一条 **drift 守卫**：从本机已装的 `@deepseek-ai/dsh-util-code-language` 读出活表，与 `CODE_EXTENSIONS` 逐项比对（找不到安装时跳过，可用 `DSH_CODE_LANGUAGE_PATH` 指定）。
+- `test/host.test.mjs` 直接驱动**真实的** `createApiHandler` / `createBundleRouteHandler`：读写往返、二进制嗅探、截断、原子性、越界 403、遍历 403、405/404/400、Connection 判定（放行 / 401 `unauthorized` / 403 `forbidden`，且判定对象是本次请求）、chunk 200/304/401/403/404。判定由测试直接给定、不再在测试里重新推导：Host/Origin/鉴权那张表归 Connection 所有，由它自己的测试覆盖。
+- `test/reveal.test.mjs` 钉住行定位规则（只认正整数、越界钳到文档行数）与 reveal token：同一条链接点两次必须产生两个不同 token，否则第二次点击永远不会重新定位。
+- `test/reveal-mark.test.mjs` 用纯 state 驱动 CodeMirror 的 reveal 字段：目标行恰好一条色带、可被下一次定位替换、可清除，且被并发编辑移动后自动丢弃。
+- `test/ranking.test.mjs` 复刻官方排序公式（含 `endsWith('.' + 后缀)` 的字面点语义），把两条不变量都钉住：官方后缀下「编辑器永远不是默认项」且「排在纯文本之前」；短名单后缀下「编辑器第一、官方纯文本第二」；`svg` 单独钉住「图片预览仍是默认、图片/代码/编辑器依次排列」；两条护栏 —— 与官方后缀互斥、且不撞官方二进制/富媒体集（`OFFICIAL_RICH_EXTENSIONS`）；`Dockerfile`/`Makefile`/`LICENSE`/`README` 无候选；`.eslintrc.json`/`prod.env.json` 这类复合名仍归官方默认。另有一条 **drift 守卫**：从本机已装的 `@deepseek-ai/dsh-util-code-language` 读出活表，与 `CODE_EXTENSIONS` 逐项比对；找不到安装时该用例报 **skipped**（绝不冒充通过），可用 `DSH_CODE_LANGUAGE_PATH` 指定。
 - `scripts/e2e-http.mjs` 需要认证：本部署的 `dsh-login-gate` 会包装**所有**已注册路由（未登录 GET→302 / POST→401），所以它必须在 `DSH_COOKIE` 下运行，或部署未启用登录门时使用。
 
 ## 已知限制
@@ -107,4 +113,4 @@ node scripts/e2e-http.mjs  # 可选：对运行中的 DSH 走真实 HTTP（需 D
 
 ## 许可
 
-MIT。宿主半边（`lib/wire.js`、`lib/fs-tree.js`、`lib/path-security.js`、`lib/session-path.js`、`lib/trust-fence.js`、`lib/bundle-route.js`、`lib/index.js` 的方法表）与编辑器主题/语言表移植自 `dsh-better-sidebar`（MIT, omdsh-dev/DSH-better-sidebar）；文件头的注释标明了每一处的来源与改动。
+MIT。宿主半边（`lib/wire.js`、`lib/fs-tree.js`、`lib/path-security.js`、`lib/session-path.js`、`lib/bundle-route.js`、`lib/index.js` 的方法表）与编辑器主题/语言表移植自 `dsh-better-sidebar`（MIT, omdsh-dev/DSH-better-sidebar）；文件头的注释标明了每一处的来源与改动。浏览器信任围栏**不再**移植：直接委托 `ctx.connection.requestRejection`（见「宿主 API」一节）。

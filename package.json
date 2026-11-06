@@ -1,6 +1,6 @@
 {
   "name": "dsh-file-editor",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Editable viewer for the DSH native right sidebar: adds an \"Editor\" option to the official document preview's viewer menu (CodeMirror 6, save on Ctrl/Cmd+S), leaving the official read-only preview as the default.",
   "type": "module",
   "main": "lib/index.js",
@@ -27,7 +27,8 @@
     "url": "git+https://github.com/gmugu/dsh-file-editor.git"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=24.9",
+    "dsh": ">=0.2.2-rc.1 <0.3.0-0"
   },
   "dsh": {
     "bundle": {

@@ -19,6 +19,7 @@ Extracted from [dsh-better-sidebar](https://github.com/omdsh-dev/DSH-better-side
   | `Dockerfile`, `Makefile`, `LICENSE` | Plain text | plain text (**structurally** unmatchable — constraint 3) |
 
 - Editor features: extension-keyed syntax highlighting (~60 languages, including the `@codemirror/legacy-modes` family), line numbers, undo history, `Ctrl/Cmd+S` save, a dirty marker, save state and file size. The ~1.8 MB CodeMirror chunk is fetched only when the editor is first selected.
+- **A line link lands on its line**: when a chat file link or the preview's locate feature opens `notes.txt:42`, the editor scrolls to line 42 and bands it briefly. The target comes from the tab's navigation params (dsh 0.2.2's `params.line`) folded with the navigation revision, so a second click on the same link reveals the line again; the band drops as soon as you type during the flash.
 - Saving **preserves the file's line ending and BOM** (a CRLF file is never rewritten as LF).
 - **Opening a file never claims "changed on disk"**: the body reports only a KNOWN version (settling once when the metadata arrives late) and absorbs the version change its own save causes, so the owner's "reload" banner appears only for a genuine external edit. The policy is the pure, unit-tested `src/client/version-report.js`.
 - Files over 2 MiB render read-only with saving disabled; binary files tell you to switch back to the official preview.
@@ -43,6 +44,8 @@ npm run build          # emits lib/client.js and lib/client-editor.js
 ```
 
 Then install the checked-out directory as a bundle — through the Plugins page's install-from-directory control, or the harness `plugin_manager` tool's `install_bundle`, with the absolute package directory as the target. The bundle is `dsh-file-editor`, its row is `file-editor`; verify with `dsh plugin --profile <profile> list`.
+
+Requires **dsh `>=0.2.2-rc.1 <0.3.0`** and **Node `>=24.9`** (declared as `engines.dsh` / `engines.node`): 0.2.2 removed `ctx.webRuntime`, raised the Node floor, and gave file tabs their `params.line` navigation, and the plugin is written against that contract. The profile launcher enforces `engines.dsh` and refuses to start a plugin outside it.
 
 **Windows note:** `install_bundle`'s target is resolved against `$HOME`, and pnpm creates *relative* junctions here — a cross-drive target resolves to a non-existent path such as `…\<profile>\D:\…`. Put a `<your-home>\local\dsh-file-editor` junction on the profile's drive pointing at the actual checkout, and install that path instead.
 
@@ -78,6 +81,7 @@ There are **no runtime dependencies**: the core bundle uses only the platform se
 
 - The working directory comes from the **session header** (`cwd` is only a fallback while a session is still hydrating); a relative path is resolved against it by the host, so the client never needs a cwd.
 - Every path is fenced to the session workspace through `realpath` (403 outside); the fence is **always armed**.
+- The browser-trust fence on both routes (`/file-editor/api`, `/file-editor/bundle`) delegates to Connection's own check (`ctx.connection.requestRejection`, the same one the `/api` transport applies): loopback, the bind address, and `trustedHosts` configured on the profile's `connection` row all count, together with the browser credential `/api` requires — whatever `/api` trusts, these routes trust. A refusal keeps Connection's status instead of flattening everything into 403: **401 `unauthorized`** for a missing or stale browser credential, **403 `forbidden`** for an untrusted Host/Origin.
 - Read cap 2 MiB, request body cap 8 MiB (upstream's 1 MiB made any file larger than 1 MiB unsaveable).
 - Writes are atomic (uniquely named temp sibling + rename, cleaned up on failure, no leftovers) and empty files are writable.
 
@@ -86,12 +90,14 @@ Differences from upstream also include what was **not** carried over: `fs.tree`,
 ## Verification
 
 ```powershell
-npm test                   # 44 checks: address parsing, EOL/BOM, language map, suffix invariants and guards, ranking invariants, the official-table drift guard, version-reporting policy, host handlers
+npm test                   # 53 checks: address parsing, EOL/BOM, language map, line targeting, suffix invariants and guards, ranking invariants, the official-table drift guard, version-reporting policy, host handlers
 node scripts/e2e-http.mjs  # optional: real HTTP against a running DSH (needs DSH_COOKIE, see below)
 ```
 
-- `test/host.test.mjs` drives the **real** `createApiHandler` / `createBundleRouteHandler`: read/write round trip, binary sniffing, truncation, atomicity, outside-workspace 403, traversal 403, 405/404/400, the trust fence, and the chunk route's 200/304/403/404.
-- `test/ranking.test.mjs` mirrors the official ranking formula (including the literal-dot `endsWith` semantics) and pins: on the official suffixes the editor is never the default and always precedes the plain-text fallback; on a short-list suffix the editor is first and the official plain text second; `svg` separately keeps the image preview as its default with code → editor following; two guards — the list is disjoint from the official suffixes and never collides with an official binary/rich suffix (`OFFICIAL_RICH_EXTENSIONS`); `Dockerfile`/`Makefile`/`LICENSE`/`README` have no candidate; and a compound name like `.eslintrc.json` still defaults to the official viewer. It also carries the **drift guard**: the installed `@deepseek-ai/dsh-util-code-language` table is loaded live and compared entry-for-entry with `CODE_EXTENSIONS` (skipped when no installation is locatable; set `DSH_CODE_LANGUAGE_PATH` to point at one).
+- `test/host.test.mjs` drives the **real** `createApiHandler` / `createBundleRouteHandler`: read/write round trip, binary sniffing, truncation, atomicity, outside-workspace 403, traversal 403, 405/404/400, the Connection verdict (admit / 401 `unauthorized` / 403 `forbidden`, asked about the actual request), and the chunk route's 200/304/401/403/404. The verdict is supplied by the test, not re-derived: Connection owns its Host/Origin/auth table and tests it itself.
+- `test/reveal.test.mjs` pins the line-targeting rules (a positive integer only, clamped to the document) and the reveal token: the same link clicked twice must produce two different tokens, or the second click would never re-reveal.
+- `test/reveal-mark.test.mjs` drives the CodeMirror reveal field through plain states: one band at the requested line, replaceable, cleared on request, and dropped by a concurrent edit that moved the line.
+- `test/ranking.test.mjs` mirrors the official ranking formula (including the literal-dot `endsWith` semantics) and pins: on the official suffixes the editor is never the default and always precedes the plain-text fallback; on a short-list suffix the editor is first and the official plain text second; `svg` separately keeps the image preview as its default with code → editor following; two guards — the list is disjoint from the official suffixes and never collides with an official binary/rich suffix (`OFFICIAL_RICH_EXTENSIONS`); `Dockerfile`/`Makefile`/`LICENSE`/`README` have no candidate; and a compound name like `.eslintrc.json` still defaults to the official viewer. It also carries the **drift guard**: the installed `@deepseek-ai/dsh-util-code-language` table is loaded live and compared entry-for-entry with `CODE_EXTENSIONS`; when no installation is locatable the run reports the check as **skipped** (never as passed), and `DSH_CODE_LANGUAGE_PATH` points it at one.
 - `scripts/e2e-http.mjs` needs authentication: this deployment's `dsh-login-gate` wraps **every** registered route (302 for GETs, 401 for POSTs when signed out), so it must run with `DSH_COOKIE` or against a gate-free deployment.
 
 ## Known limitations
@@ -107,4 +113,4 @@ node scripts/e2e-http.mjs  # optional: real HTTP against a running DSH (needs DS
 
 ## License
 
-MIT. The host half (`lib/wire.js`, `lib/fs-tree.js`, `lib/path-security.js`, `lib/session-path.js`, `lib/trust-fence.js`, `lib/bundle-route.js`, and the method table in `lib/index.js`) and the editor's theme/language tables are ports from `dsh-better-sidebar` (MIT, omdsh-dev/DSH-better-sidebar); each file's header records its origin and what changed.
+MIT. The host half (`lib/wire.js`, `lib/fs-tree.js`, `lib/path-security.js`, `lib/session-path.js`, `lib/bundle-route.js`, and the method table in `lib/index.js`) and the editor's theme/language tables are ports from `dsh-better-sidebar` (MIT, omdsh-dev/DSH-better-sidebar); each file's header records its origin and what changed. The browser-trust fence is **not** ported any more: it delegates to `ctx.connection.requestRejection` (see the Host API section).

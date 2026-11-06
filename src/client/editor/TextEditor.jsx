@@ -22,6 +22,7 @@ import { defaultKeymap, history, historyKeymap, undo, redo, undoDepth, redoDepth
 import { search, searchKeymap, openSearchPanel } from '@codemirror/search'
 import { languageForPath } from './lang.js'
 import { cmSurfaceTheme, CmThemeCompartment } from './cm-themes.js'
+import { cancelReveal, revealLine as revealViewLine, revealMarkField, revealTheme } from './reveal.js'
 
 /**
  * Mirror the host's code-block typography onto the editor as INLINE styles.
@@ -92,8 +93,12 @@ const SEARCH_PHRASES = EditorState.phrases.of({
  *   the editor's undo history changes (including the initial document state).
  * @param props.onScrollport - registers the editor's scroller with the document
  *   owner so the sidebar's scroll memory keeps working (`null` on unmount).
+ * @param props.revealLine - a 1-based source line from the tab's navigation
+ *   params to scroll to (with a brief highlight), or undefined for none.
+ * @param props.revealToken - changes whenever the same request must fire again
+ *   (a repeated navigation to the same line gets a new token).
  */
-export function TextEditor({ value, path, resetKey, readOnly, dark, onChange, onSave, controlsRef, onHistoryState, onScrollport }) {
+export function TextEditor({ value, path, resetKey, readOnly, dark, onChange, onSave, controlsRef, onHistoryState, onScrollport, revealLine, revealToken }) {
   const hostRef = useRef(null)
   const viewRef = useRef(null)
   const themeRef = useRef(null)
@@ -122,6 +127,8 @@ export function TextEditor({ value, path, resetKey, readOnly, dark, onChange, on
         SEARCH_PHRASES,
         search({ top: true }),
         cmSurfaceTheme,
+        revealMarkField,
+        revealTheme,
         themeComp.of(dark === true),
         ...(language !== null ? [language] : []),
         EditorView.updateListener.of((update) => {
@@ -167,6 +174,7 @@ export function TextEditor({ value, path, resetKey, readOnly, dark, onChange, on
       onScrollport?.(null)
       if (controlsRef != null) controlsRef.current = null
       latest.current.onHistoryState?.({ canUndo: false, canRedo: false })
+      cancelReveal(view)
       view.destroy()
       viewRef.current = null
       themeRef.current = null
@@ -183,6 +191,18 @@ export function TextEditor({ value, path, resetKey, readOnly, dark, onChange, on
     if (view === null || themeComp === null) return
     view.dispatch({ effects: themeComp.reconfigure(dark === true) })
   }, [dark])
+
+  // A tab navigation that targets a line (a `notes.txt:42` link, a reveal from
+  // the chat, a repeat click on the same link): scroll there and band the line.
+  // `resetKey` also re-runs it, so a reveal requested while the document was
+  // still being read lands in the freshly built view.
+  useEffect(() => {
+    const view = viewRef.current
+    if (view === null || typeof revealLine !== 'number') return
+    revealViewLine(view, revealLine)
+    // `revealToken` is the trigger; `revealLine` and the view are read live.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [revealToken, resetKey])
 
   return <div ref={hostRef} style={{ height: '100%', minHeight: 0 }} data-file-editor-surface="" />
 }

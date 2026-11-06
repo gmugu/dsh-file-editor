@@ -5,10 +5,10 @@
  * registered route, so an unauthenticated HTTP call never reaches a plugin).
  *
  * Everything a request would exercise is exercised: the dispatch and its
- * guards, the browser-trust fence, session cwd resolution (header first, then
- * the documented client fallback), path absolutization, the workspace fence
- * through realpath, bounded text reads with binary detection, and the atomic
- * write.
+ * guards, the Connection verdict and its translation to an error code, session
+ * cwd resolution (header first, then the documented client fallback), path
+ * absolutization, the workspace fence through realpath, bounded text reads with
+ * binary detection, and the atomic write.
  */
 import assert from 'node:assert/strict'
 import { mkdtemp, mkdir, readdir, rm, stat, writeFile } from 'node:fs/promises'
@@ -19,7 +19,6 @@ import { createApiHandler } from '../lib/index.js'
 import { createBundleRouteHandler } from '../lib/bundle-route.js'
 import { isWithin } from '../lib/fs-tree.js'
 import { resolveSessionPath } from '../lib/session-path.js'
-import { isTrustedApiRequest } from '../lib/trust-fence.js'
 
 const SESSION = 'session-1'
 const READ_LIMIT = 2 << 20
@@ -81,13 +80,23 @@ async function call(handler, req) {
   }
 }
 
-/** A host context whose session header carries `cwd` (or no session at all). */
-function makeCtx({ cwd, sessionId = SESSION, trustedHosts = [] } = {}) {
+/**
+ * A host context whose session header carries `cwd` (or no session at all).
+ *
+ * `connection` stands in for Connection's verdict. The plugin's whole contract
+ * with that service is "undefined admits the request, a status refuses it", so
+ * the cases drive that verdict directly: re-deriving Connection's Host/Origin/
+ * browser-auth table here would only test a copy of somebody else's decision
+ * (that table belongs to @deepseek-ai/dsh-client-connection and its own tests).
+ * Pass a number to refuse every request with it, or a function to judge one.
+ */
+function makeCtx({ cwd, sessionId = SESSION, rejection = () => undefined } = {}) {
+  const verdict = typeof rejection === 'function' ? rejection : () => rejection
   return {
     sessions: {
       get: (id) => (cwd !== undefined && id === sessionId ? { header: { cwd } } : undefined),
     },
-    webRuntime: { trustedHosts },
+    connection: { requestRejection: (req) => verdict(req) },
   }
 }
 
@@ -251,35 +260,38 @@ test('the dispatch guards method, route shape and body', async () => {
   assert.equal(noBody.status, 400)
 })
 
-test('the browser-trust fence is applied to the API', async () => {
-  const ctx = makeCtx({ cwd: workspace })
+test('the API applies the Connection verdict and keeps its status', async () => {
   const payload = JSON.stringify({ sessionId: SESSION, path: 'empty.txt' })
 
-  const foreign = await call(createApiHandler(ctx), makeReq({ body: payload, host: 'evil.example' }))
-  assert.equal(foreign.status, 403)
+  const admitted = await call(createApiHandler(makeCtx({ cwd: workspace })), makeReq({ body: payload }))
+  assert.equal(admitted.status, 200)
 
-  const noHost = await call(createApiHandler(ctx), makeReq({ body: payload, host: null }))
-  assert.equal(noHost.status, 403)
+  const untrusted = await call(createApiHandler(makeCtx({ cwd: workspace, rejection: 403 })), makeReq({ body: payload, host: 'evil.example' }))
+  assert.equal(untrusted.status, 403)
+  assert.equal(untrusted.json.error.code, 'forbidden')
 
-  const crossSite = await call(createApiHandler(ctx), makeReq({ body: payload, headers: { 'sec-fetch-site': 'cross-site' } }))
-  assert.equal(crossSite.status, 403)
+  // An unauthenticated browser is Connection's 401, not a flattened "forbidden":
+  // the body must be able to tell "log in again" from "not this origin".
+  const unauthenticated = await call(createApiHandler(makeCtx({ cwd: workspace, rejection: 401 })), makeReq({ body: payload }))
+  assert.equal(unauthenticated.status, 401)
+  assert.equal(unauthenticated.json.error.code, 'unauthorized')
 
-  const crossOrigin = await call(createApiHandler(ctx), makeReq({ body: payload, headers: { origin: 'http://evil.example' } }))
-  assert.equal(crossOrigin.status, 403)
-
-  const loopback = await call(createApiHandler(ctx), makeReq({ body: payload }))
-  assert.equal(loopback.status, 200)
-
-  const trusted = await call(createApiHandler(makeCtx({ cwd: workspace, trustedHosts: ['nas.example:3080'] })), makeReq({
-    body: payload,
-    host: 'nas.example:3080',
-  }))
-  assert.equal(trusted.status, 200)
+  // The verdict is asked about THIS request, before any dispatch.
+  let seenHost
+  const judged = await call(createApiHandler(makeCtx({
+    cwd: workspace,
+    rejection: (req) => {
+      seenHost = req.headers.host
+      return undefined
+    },
+  })), makeReq({ body: payload, host: 'nas.example:3080' }))
+  assert.equal(seenHost, 'nas.example:3080')
+  assert.equal(judged.status, 200)
 })
 
-test('the bundle route serves the chunk, revalidates it, and fences it', async () => {
-  const fence = (req) => isTrustedApiRequest(req, [])
-  const handler = createBundleRouteHandler(fence)
+test('the bundle route serves the chunk, revalidates it, and applies the Connection verdict', async () => {
+  const reject = (req) => (req.headers.host === '127.0.0.1:3080' ? undefined : 403)
+  const handler = createBundleRouteHandler(reject)
   const request = (options) => makeReq({ method: 'GET', url: '/file-editor/bundle/editor.js', ...options })
 
   const first = await call(handler, request())
@@ -299,6 +311,10 @@ test('the bundle route serves the chunk, revalidates it, and fences it', async (
   const foreign = await call(handler, request({ host: 'evil.example' }))
   assert.equal(foreign.status, 403)
 
+  const unauthenticated = await call(createBundleRouteHandler(() => 401), request())
+  assert.equal(unauthenticated.status, 401)
+  assert.equal(unauthenticated.body, 'unauthorized')
+
   const other = await call(handler, makeReq({ method: 'GET', url: '/file-editor/bundle/terminal.js' }))
   assert.equal(other.status, 404)
 
@@ -312,7 +328,7 @@ test('the bundle route serves the chunk, revalidates it, and fences it', async (
   assert.equal(head.status, 200)
 
   // A correctly named but unbuilt chunk is a loud 404, not an empty 200.
-  const unbuilt = await call(createBundleRouteHandler(fence, tmpdir()), request())
+  const unbuilt = await call(createBundleRouteHandler(reject, tmpdir()), request())
   assert.equal(unbuilt.status, 404)
 })
 

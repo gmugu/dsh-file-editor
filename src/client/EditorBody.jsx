@@ -20,7 +20,10 @@
  *  - the file's CRLF/BOM convention is restored on save (see editor/eol.js),
  *    so an edit never rewrites every line of a Windows file;
  *  - a disk revision arriving while the draft is dirty is announced, never
- *    applied under the reader.
+ *    applied under the reader;
+ *  - a tab navigation that carries `params.line` (the file links and the
+ *    preview's locate feature of dsh 0.2.2) scrolls the editor to that line and
+ *    bands it — the same `useTabInfo` number the official bodies read.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api, isAbortError, messageOf } from './api.js'
@@ -29,15 +32,19 @@ import { peekDraft, putDraft, dropDraft } from './drafts.js'
 import { decodeSource, encodeSource } from './editor/eol.js'
 import { isDarkScheme, subscribeScheme } from './editor/scheme.js'
 import { parseFileAddress } from './resource-address.js'
+import { navigationReveal } from './reveal.js'
 import { versionReportAction } from './version-report.js'
 
 /** Fallback for a bundle that does not deliver the standard resource hook. */
 const NO_RESOURCE_HOOK = () => undefined
 
-/** Keep the hook identity stable: the standard prop never changes mid-mount,
+/** Fallback for a slot that does not deliver the tab-info hook. */
+const NO_TAB_INFO = () => undefined
+
+/** Keep a hook identity stable: the standard prop never changes mid-mount,
  *  and a hook must be called unconditionally on every render. */
-function useStableResourceHook(candidate) {
-  const ref = useRef(typeof candidate === 'function' ? candidate : NO_RESOURCE_HOOK)
+function useStableHook(candidate, fallback) {
+  const ref = useRef(typeof candidate === 'function' ? candidate : fallback)
   return ref.current
 }
 
@@ -87,6 +94,10 @@ const STYLE = {
  * @param props.content - the owner's renderer contract.
  * @param props.scrollportRef - the owner's ref callback for scroll memory.
  * @param props.useResource - the standard hook giving the file's metadata version.
+ * @param props.useTabInfo - the slot's tab-info hook (0.2.2 declares it on the
+ *   document slot), giving this file's navigation: `params.line` is the target
+ *   line and `revision` bumps on every navigation, so a repeated click on the
+ *   same `file:42` link reveals the line again.
  * @param props.sessionCwd - the session's working directory as the client knows
  *   it, sent as the host's fallback for a session whose header carries none
  *   (upstream had this AND a session-persistence fallback; the host prefers the
@@ -95,8 +106,10 @@ const STYLE = {
  */
 export function EditorBody(props) {
   const { resourceAddress, content, scrollportRef, sessionCwd, t } = props
-  const useResource = useStableResourceHook(props.useResource)
+  const useResource = useStableHook(props.useResource, NO_RESOURCE_HOOK)
   const meta = useResource(resourceAddress)
+  const useTabInfo = useStableHook(props.useTabInfo, NO_TAB_INFO)
+  const reveal = navigationReveal(useTabInfo()?.tab?.navigation)
   const file = useMemo(() => parseFileAddress(resourceAddress), [resourceAddress])
   const revision = content?.revision
 
@@ -421,6 +434,8 @@ export function EditorBody(props) {
         controlsRef={editorControls}
         onHistoryState={setHistoryState}
         onScrollport={scrollportRef}
+        revealLine={reveal.line}
+        revealToken={reveal.token}
       />
     )
   }

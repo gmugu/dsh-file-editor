@@ -24,7 +24,7 @@ import assert from 'node:assert/strict'
 import { execSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { createRequire } from 'node:module'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { CODE_EXTENSIONS, EDITOR_EXTENSIONS, EDITOR_ID, EXTRA_EXTENSIONS } from '../src/client/definition.js'
@@ -191,19 +191,40 @@ test('no extra suffix collides with an official suffix set', () => {
 /**
  * Resolve the live official suffix table from the installed dsh, so the copy
  * above can be pinned against it. Looked up in: the DSH_CODE_LANGUAGE_PATH env
- * override, this workspace's node_modules, and the global dsh installation
- * (flat and nested under @deepseek-ai/dsh). Absent everywhere, the drift test
- * skips rather than guess.
+ * override, this workspace's node_modules, the node installation running this
+ * test (a global npm install keeps the package tree either at `<prefix>/
+ * node_modules` on Windows or `<prefix>/lib/node_modules` elsewhere), and
+ * finally `npm root -g`. Locating it never spawns a process unless every
+ * filesystem candidate misses; a spawn that the sandbox forbids simply leaves
+ * that last candidate out.
+ *
+ * The caller must treat "undefined" as SKIPPED, never as passed: an upgrade
+ * that reshapes this table is exactly what the guard exists to catch.
  */
 function resolveOfficialCodeExtensions() {
   const pkg = '@deepseek-ai/dsh-util-code-language'
   const roots = []
   if (process.env.DSH_CODE_LANGUAGE_PATH) roots.push(process.env.DSH_CODE_LANGUAGE_PATH)
   roots.push(join(fileURLToPath(new URL('../node_modules', import.meta.url)), pkg))
-  try {
-    const globalRoot = execSync('npm root -g', { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim()
-    roots.push(join(globalRoot, pkg), join(globalRoot, '@deepseek-ai', 'dsh', 'node_modules', pkg))
-  } catch { /* npm unavailable — fall through to the other roots */ }
+  const nodePrefix = dirname(process.execPath)
+  const dshNested = join('@deepseek-ai', 'dsh', 'node_modules', pkg)
+  roots.push(
+    join(nodePrefix, 'node_modules', pkg),
+    join(nodePrefix, 'lib', 'node_modules', pkg),
+    join(nodePrefix, 'node_modules', dshNested),
+    join(nodePrefix, 'lib', 'node_modules', dshNested),
+  )
+  const existing = roots.filter(root => existsSync(join(root, 'package.json')))
+  if (existing.length === 0) {
+    try {
+      const globalRoot = execSync('npm root -g', {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+        timeout: 5000,
+      }).trim()
+      roots.push(join(globalRoot, pkg), join(globalRoot, dshNested))
+    } catch { /* npm unavailable or forbidden — the guard skips below */ }
+  }
   for (const root of roots) {
     if (!existsSync(join(root, 'package.json'))) continue
     try {
@@ -215,10 +236,11 @@ function resolveOfficialCodeExtensions() {
   return undefined
 }
 
-test('CODE_EXTENSIONS stays in lockstep with the installed official table (drift guard)', () => {
+test('CODE_EXTENSIONS stays in lockstep with the installed official table (drift guard)', (t) => {
   const live = resolveOfficialCodeExtensions()
   if (live === undefined) {
-    assert.ok(true, 'official table not locatable (set DSH_CODE_LANGUAGE_PATH) — copy drift unchecked in this run')
+    // Skipped, not passed: this run checked nothing, so the report must say so.
+    t.skip('official table not locatable (set DSH_CODE_LANGUAGE_PATH) — copy drift unchecked in this run')
     return
   }
   assert.deepEqual(
